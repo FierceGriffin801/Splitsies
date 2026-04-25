@@ -5,6 +5,8 @@ import Dashboard from './pages/Dashboard';
 import GroupDetails from './pages/GroupDetails';
 import { LogOut, Home } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import OneSignal from 'react-onesignal';
+import { useEffect } from 'react';
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
@@ -16,6 +18,14 @@ function ProtectedRoute({ children }) {
 
 function MainLayout({ children }) {
   const { user, signOut } = useAuth();
+
+  useEffect(() => {
+    if (user && import.meta.env.VITE_ONESIGNAL_APP_ID) {
+      try {
+        OneSignal.login(user.id);
+      } catch(e) { console.error('OneSignal login error', e); }
+    }
+  }, [user]);
 
   return (
     <>
@@ -38,6 +48,20 @@ function MainLayout({ children }) {
 }
 
 function App() {
+  useEffect(() => {
+    const appId = import.meta.env.VITE_ONESIGNAL_APP_ID;
+    if (appId) {
+      try {
+        OneSignal.init({
+          appId: appId,
+          allowLocalhostAsSecureOrigin: true,
+        }).then(() => {
+          OneSignal.Slidedown.promptPush();
+        });
+      } catch(e) { console.error('OneSignal init error', e); }
+    }
+  }, []);
+
   return (
     <AuthProvider>
       <Router>

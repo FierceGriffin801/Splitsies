@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { Link } from 'react-router-dom';
 import { Users, Plus } from 'lucide-react';
+import NotificationBell from '../components/NotificationBell';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -62,10 +63,13 @@ export default function Dashboard() {
     <div className="p-4 animate-slide-up">
       <div className="flex justify-between items-center mb-4">
         <h1 className="m-0 text-primary">My Groups</h1>
-        <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)} style={{ padding: '0.5rem 1rem' }}>
-          <Plus size={18} />
-          New
-        </button>
+        <div className="flex items-center gap-2">
+          <NotificationBell />
+          <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)} style={{ padding: '0.5rem 1rem' }}>
+            <Plus size={18} />
+            New
+          </button>
+        </div>
       </div>
 
       {showCreate && (

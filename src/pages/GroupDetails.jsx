@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { ArrowLeft, UserPlus, Plus, Receipt, Wallet, CheckCircle, Settings, LogOut, Trash2 } from 'lucide-react';
+import NotificationBell from '../components/NotificationBell';
 
 export default function GroupDetails() {
   const { id } = useParams();
@@ -210,6 +211,23 @@ export default function GroupDetails() {
 
     await supabase.from('expense_splits').insert(splitsToInsert);
 
+    // Create notifications
+    const me = members.find(m => m.id === user.id);
+    const myName = me?.full_name || me?.email || 'Someone';
+    
+    const notificationsToInsert = splitsToInsert
+      .filter(s => s.user_id !== user.id) // don't notify self
+      .map(s => ({
+        user_id: s.user_id,
+        group_id: id,
+        expense_id: expenseData.id,
+        message: `${myName} added an expense: "${expenseDesc}" for ₹${amountNum.toFixed(2)}.`
+      }));
+
+    if (notificationsToInsert.length > 0) {
+      await supabase.from('notifications').insert(notificationsToInsert);
+    }
+
     setShowAddExpense(false);
     setExpenseDesc('');
     setExpenseAmount('');
@@ -251,6 +269,23 @@ export default function GroupDetails() {
         amount: amountNum
       }]);
       
+      const me = members.find(m => m.id === user.id);
+      const myName = me?.full_name || me?.email || 'Someone';
+      const payerName = members.find(m => m.id === settlePayer)?.full_name || 'Someone';
+      const receiverName = members.find(m => m.id === settleReceiver)?.full_name || 'Someone';
+
+      // Notify anyone involved who didn't click the button
+      const notifs = [];
+      if (settleReceiver !== user.id) {
+         notifs.push({ user_id: settleReceiver, group_id: id, expense_id: expenseData.id, message: `${myName} recorded a settlement: ${payerName} paid ₹${amountNum.toFixed(2)} to ${receiverName}.` });
+      }
+      if (settlePayer !== user.id && settlePayer !== settleReceiver) {
+         notifs.push({ user_id: settlePayer, group_id: id, expense_id: expenseData.id, message: `${myName} recorded a settlement: ${payerName} paid ₹${amountNum.toFixed(2)} to ${receiverName}.` });
+      }
+      if (notifs.length > 0) {
+        await supabase.from('notifications').insert(notifs);
+      }
+
       setShowSettleUp(false);
       setSettleAmount('');
       fetchGroupData();
@@ -280,6 +315,7 @@ export default function GroupDetails() {
           <ArrowLeft size={20} className="text-primary" />
         </Link>
         <h1 className="m-0 flex-1 truncate">{group.name}</h1>
+        <NotificationBell />
         <button 
           className="btn" 
           style={{ padding: '0.25rem' }} 
