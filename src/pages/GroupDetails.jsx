@@ -12,6 +12,7 @@ export default function GroupDetails() {
   const [members, setMembers] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [balances, setBalances] = useState([]);
+  const [settlements, setSettlements] = useState([]);
   const [loading, setLoading] = useState(true);
   
   const [activeTab, setActiveTab] = useState('expenses'); 
@@ -104,6 +105,45 @@ export default function GroupDetails() {
     setLoading(false);
   };
 
+  // Build a pairwise debt matrix from raw expense_splits:
+  // for each expense, every split member owes the payer that split amount.
+  // Then we net out each pair (A↔B) to get one directed amount.
+  const computePairwiseDebts = (groupMembers, groupExpenses) => {
+    const memberMap = {};
+    groupMembers.forEach(m => { memberMap[m.id] = m.full_name || m.email; });
+
+    // rawDebt[fromId][toId] = total amount fromId owes toId (un-netted)
+    const rawDebt = {};
+    groupExpenses.forEach(exp => {
+      exp.expense_splits.forEach(split => {
+        if (split.user_id === exp.paid_by) return; // skip self-splits
+        const from = split.user_id;
+        const to   = exp.paid_by;
+        if (!rawDebt[from]) rawDebt[from] = {};
+        rawDebt[from][to] = (rawDebt[from][to] || 0) + Number(split.amount);
+      });
+    });
+
+    // Net out each unique pair and keep only the direction with a positive balance
+    const memberIds = groupMembers.map(m => m.id);
+    const result = [];
+    for (let i = 0; i < memberIds.length; i++) {
+      for (let j = i + 1; j < memberIds.length; j++) {
+        const a = memberIds[i];
+        const b = memberIds[j];
+        const aOwesB = (rawDebt[a]?.[b]) || 0;
+        const bOwesA = (rawDebt[b]?.[a]) || 0;
+        const net = aOwesB - bOwesA;
+        if (net > 0.01) {
+          result.push({ from: { id: a, name: memberMap[a] }, to: { id: b, name: memberMap[b] }, amount: Math.round(net * 100) / 100 });
+        } else if (net < -0.01) {
+          result.push({ from: { id: b, name: memberMap[b] }, to: { id: a, name: memberMap[a] }, amount: Math.round(-net * 100) / 100 });
+        }
+      }
+    }
+    return result;
+  };
+
   const calculateBalances = (groupMembers, groupExpenses) => {
     const bals = {};
     groupMembers.forEach(m => {
@@ -123,7 +163,9 @@ export default function GroupDetails() {
       });
     });
 
-    setBalances(Object.values(bals).sort((a,b) => b.net - a.net));
+    const sorted = Object.values(bals).sort((a, b) => b.net - a.net);
+    setBalances(sorted);
+    setSettlements(computePairwiseDebts(groupMembers, groupExpenses));
   };
 
   const handleInvite = async (e) => {
@@ -243,6 +285,13 @@ export default function GroupDetails() {
 
   const handleEqualSplitToggle = (userId, isChecked) => {
     setEqualSplitMembers(prev => ({ ...prev, [userId]: isChecked }));
+  };
+
+  const handlePreFillSettle = (fromId, toId, amount) => {
+    setSettlePayer(fromId);
+    setSettleReceiver(toId);
+    setSettleAmount(amount.toFixed(2));
+    setShowSettleUp(true);
   };
 
   const handleSettleUp = async (e) => {
@@ -611,6 +660,89 @@ export default function GroupDetails() {
                   </div>
                 )
               })}
+            </div>
+          )}
+
+          {/* ── Settlement Plan ── */}
+          {settlements.length > 0 && !showSettleUp && (
+            <div style={{ marginTop: '1.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem' }}>
+                <span style={{ fontSize: '1.1rem' }}>💡</span>
+                <h3 style={{ margin: 0, fontSize: '1rem' }}>Settlement Plan</h3>
+              </div>
+              <p className="text-muted" style={{ fontSize: '0.78rem', marginBottom: '1rem' }}>
+                Exact amounts owed between each person
+              </p>
+              <div className="flex flex-col gap-3">
+                {settlements.map((txn, idx) => {
+                  const involvesMe = txn.from.id === user.id || txn.to.id === user.id;
+                  const fromName = txn.from.id === user.id ? 'You' : txn.from.name;
+                  const toName   = txn.to.id   === user.id ? 'You' : txn.to.name;
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '0.875rem 1rem',
+                        borderRadius: 'var(--radius-lg)',
+                        border: involvesMe ? '1.5px solid var(--primary)' : '1px solid var(--border-color)',
+                        background: involvesMe ? 'rgba(16,185,129,0.06)' : 'var(--surface)',
+                        boxShadow: 'var(--shadow-sm)',
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      {/* From → To */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flex: 1, minWidth: 0 }}>
+                        {/* From avatar */}
+                        <div style={{
+                          width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+                          background: 'rgba(239,68,68,0.15)',
+                          border: '1.5px solid var(--danger)',
+                          color: 'var(--danger)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontWeight: 700, fontSize: '0.7rem'
+                        }}>
+                          {(txn.from.name || '?').substring(0, 2).toUpperCase()}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fromName}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>pays</div>
+                        </div>
+
+                        {/* Arrow */}
+                        <div style={{ color: 'var(--text-muted)', fontSize: '1.1rem', flexShrink: 0, padding: '0 0.1rem' }}>→</div>
+
+                        {/* To avatar */}
+                        <div style={{
+                          width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+                          background: 'rgba(16,185,129,0.15)',
+                          border: '1.5px solid var(--primary)',
+                          color: 'var(--primary)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontWeight: 700, fontSize: '0.7rem'
+                        }}>
+                          {(txn.to.name || '?').substring(0, 2).toUpperCase()}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{toName}</div>
+                          <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--primary)' }}>₹{txn.amount.toFixed(2)}</div>
+                        </div>
+                      </div>
+
+                      {/* Pre-fill button */}
+                      <button
+                        className="btn btn-primary"
+                        style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem', flexShrink: 0, marginLeft: '0.5rem' }}
+                        onClick={() => handlePreFillSettle(txn.from.id, txn.to.id, txn.amount)}
+                      >
+                        Settle →
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
