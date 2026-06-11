@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
-import { ArrowLeft, UserPlus, Plus, Receipt, Wallet, CheckCircle, Settings, LogOut, Trash2 } from 'lucide-react';
+import { ArrowLeft, UserPlus, Plus, Receipt, Wallet, CheckCircle, Settings, LogOut, Trash2, Edit2 } from 'lucide-react';
 import NotificationBell from '../components/NotificationBell';
 
 export default function GroupDetails() {
@@ -30,6 +30,7 @@ export default function GroupDetails() {
   const [singleOwer, setSingleOwer] = useState(''); // userId
   const [exactSplits, setExactSplits] = useState({}); // { [userId]: "value" }
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingExpenseId, setEditingExpenseId] = useState(null);
 
   // Settlement state
   const [showSettleUp, setShowSettleUp] = useState(false);
@@ -241,42 +242,96 @@ export default function GroupDetails() {
       splitsToInsert = parsedSplits;
     }
 
-    const { data: expenseData, error: expError } = await supabase
-      .from('expenses')
-      .insert([{ group_id: id, paid_by: expensePayer, amount: amountNum, description: expenseDesc }])
-      .select().single();
-
-    if (expError) { setIsSubmitting(false); return; }
+    let expenseDataId;
+    if (editingExpenseId) {
+      const { error: expError } = await supabase
+        .from('expenses')
+        .update({ paid_by: expensePayer, amount: amountNum, description: expenseDesc })
+        .eq('id', editingExpenseId);
+      if (expError) { setIsSubmitting(false); return; }
+      
+      await supabase.from('expense_splits').delete().eq('expense_id', editingExpenseId);
+      expenseDataId = editingExpenseId;
+    } else {
+      const { data: expenseData, error: expError } = await supabase
+        .from('expenses')
+        .insert([{ group_id: id, paid_by: expensePayer, amount: amountNum, description: expenseDesc }])
+        .select().single();
+      if (expError) { setIsSubmitting(false); return; }
+      expenseDataId = expenseData.id;
+    }
 
     // Map expense_id into splits
-    splitsToInsert = splitsToInsert.map(s => ({ ...s, expense_id: expenseData.id }));
+    splitsToInsert = splitsToInsert.map(s => ({ ...s, expense_id: expenseDataId }));
 
     await supabase.from('expense_splits').insert(splitsToInsert);
 
-    // Create notifications
-    const me = members.find(m => m.id === user.id);
-    const myName = me?.full_name || me?.email || 'Someone';
-    
-    const notificationsToInsert = splitsToInsert
-      .filter(s => s.user_id !== user.id) // don't notify self
-      .map(s => ({
-        user_id: s.user_id,
-        group_id: id,
-        expense_id: expenseData.id,
-        message: `${myName} added an expense: "${expenseDesc}" for ₹${amountNum.toFixed(2)}.`
-      }));
+    if (!editingExpenseId) {
+      // Create notifications
+      const me = members.find(m => m.id === user.id);
+      const myName = me?.full_name || me?.email || 'Someone';
+      
+      const notificationsToInsert = splitsToInsert
+        .filter(s => s.user_id !== user.id) // don't notify self
+        .map(s => ({
+          user_id: s.user_id,
+          group_id: id,
+          expense_id: expenseDataId,
+          message: `${myName} added an expense: "${expenseDesc}" for ₹${amountNum.toFixed(2)}.`
+        }));
 
-    if (notificationsToInsert.length > 0) {
-      await supabase.from('notifications').insert(notificationsToInsert);
+      if (notificationsToInsert.length > 0) {
+        await supabase.from('notifications').insert(notificationsToInsert);
+      }
     }
 
     setShowAddExpense(false);
+    setEditingExpenseId(null);
     setExpenseDesc('');
     setExpenseAmount('');
     setExactSplits({});
     setSplitType('equal');
     fetchGroupData();
     setIsSubmitting(false);
+  };
+
+  const handleEditClick = (exp) => {
+    setEditingExpenseId(exp.id);
+    setExpenseDesc(exp.description);
+    setExpenseAmount(exp.amount.toString());
+    setExpensePayer(exp.paid_by);
+    
+    const splits = exp.expense_splits || [];
+    if (splits.length === 1 && Math.abs(Number(splits[0].amount) - Number(exp.amount)) < 0.05) {
+      setSplitType('single');
+      setSingleOwer(splits[0].user_id);
+    } else {
+      let isEqual = false;
+      if (splits.length > 0) {
+        const amounts = splits.map(s => Number(s.amount));
+        const max = Math.max(...amounts);
+        const min = Math.min(...amounts);
+        if (max - min <= 0.05) isEqual = true;
+      }
+      if (isEqual) {
+        setSplitType('equal');
+        const activeIds = splits.map(s => s.user_id);
+        const newEqualSplitMembers = {};
+        members.forEach(m => {
+          newEqualSplitMembers[m.id] = activeIds.includes(m.id);
+        });
+        setEqualSplitMembers(newEqualSplitMembers);
+      } else {
+        setSplitType('exact');
+        const newExactSplits = {};
+        splits.forEach(s => {
+          newExactSplits[s.user_id] = Number(s.amount).toFixed(2);
+        });
+        setExactSplits(newExactSplits);
+      }
+    }
+    setShowAddExpense(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleExactSplitChange = (userId, value) => {
@@ -403,7 +458,7 @@ export default function GroupDetails() {
 
           {showAddExpense && (
             <div className="card mb-4 border-primary">
-              <h3 className="mb-4 text-primary">Add Expense</h3>
+              <h3 className="mb-4 text-primary">{editingExpenseId ? 'Edit Expense' : 'Add Expense'}</h3>
               <form onSubmit={handleAddExpense}>
                 <div className="form-group">
                   <label className="form-label">Description</label>
@@ -538,8 +593,8 @@ export default function GroupDetails() {
                 )}
 
                 <div className="flex gap-2">
-                  <button type="button" className="btn btn-outline flex-1" onClick={() => setShowAddExpense(false)}>Cancel</button>
-                  <button type="submit" className="btn btn-primary flex-1" disabled={isSubmitting}>{isSubmitting ? 'Saving...' : 'Save'}</button>
+                  <button type="button" className="btn btn-outline flex-1" onClick={() => { setShowAddExpense(false); setEditingExpenseId(null); }}>Cancel</button>
+                  <button type="submit" className="btn btn-primary flex-1" disabled={isSubmitting}>{isSubmitting ? 'Saving...' : (editingExpenseId ? 'Update' : 'Save')}</button>
                 </div>
               </form>
             </div>
@@ -605,8 +660,15 @@ export default function GroupDetails() {
                         })()}
                       </div>
                     </div>
-                    <div className="font-bold" style={{ fontSize: '1.25rem', color: isSettlement ? 'var(--primary)' : 'var(--text-main)' }}>
-                      ₹{Number(exp.amount).toFixed(2)}
+                    <div className="flex items-center gap-2">
+                      <div className="font-bold" style={{ fontSize: '1.25rem', color: isSettlement ? 'var(--primary)' : 'var(--text-main)' }}>
+                        ₹{Number(exp.amount).toFixed(2)}
+                      </div>
+                      {!isSettlement && (
+                        <button className="btn" style={{ padding: '0.25rem' }} onClick={() => handleEditClick(exp)}>
+                          <Edit2 size={16} className="text-muted hover:text-primary transition-colors" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 )
