@@ -595,7 +595,7 @@ export default function GroupDetails() {
 
                           let namesStr = involvedNames.length <= 2 
                             ? involvedNames.join(' & ') 
-                            : `${involvedNames.slice(0, 2).join(', ')} & ${involvedNames.length - 2} others`;
+                            : `${involvedNames.slice(0, -1).join(', ')} & ${involvedNames[involvedNames.length - 1]}`;
 
                           return (
                             <div style={{ fontSize: '0.7rem', color: 'var(--primary)', opacity: 0.9, marginTop: '0.1rem' }}>
