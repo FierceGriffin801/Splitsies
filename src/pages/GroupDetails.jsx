@@ -340,6 +340,27 @@ export default function GroupDetails() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleDeleteExpense = async (exp) => {
+    if (!window.confirm(`Are you sure you want to delete the expense "${exp.description}"? This cannot be undone.`)) return;
+    
+    setIsSubmitting(true);
+    const { error } = await supabase.from('expenses').delete().eq('id', exp.id);
+    
+    if (error) {
+      alert("Failed to delete expense: " + error.message);
+      setIsSubmitting(false);
+      return;
+    }
+    
+    if (editingExpenseId === exp.id) {
+      setShowAddExpense(false);
+      setEditingExpenseId(null);
+    }
+    
+    fetchGroupData();
+    setIsSubmitting(false);
+  };
+
   const handleExactSplitChange = (userId, value) => {
     setExactSplits(prev => ({ ...prev, [userId]: value }));
   };
@@ -671,9 +692,14 @@ export default function GroupDetails() {
                         ₹{Number(exp.amount).toFixed(2)}
                       </div>
                       {!isSettlement && (
-                        <button className="btn" style={{ padding: '0.25rem' }} onClick={() => handleEditClick(exp)}>
-                          <Edit2 size={16} className="text-muted hover:text-primary transition-colors" />
-                        </button>
+                        <>
+                          <button className="btn" style={{ padding: '0.25rem' }} onClick={() => handleEditClick(exp)}>
+                            <Edit2 size={16} className="text-muted hover:text-primary transition-colors" />
+                          </button>
+                          <button className="btn" style={{ padding: '0.25rem' }} onClick={() => handleDeleteExpense(exp)}>
+                            <Trash2 size={16} className="text-muted hover:text-danger transition-colors" />
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
