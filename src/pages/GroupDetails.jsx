@@ -248,7 +248,10 @@ export default function GroupDetails() {
         .from('expenses')
         .update({ paid_by: expensePayer, amount: amountNum, description: expenseDesc })
         .eq('id', editingExpenseId);
-      if (expError) { setIsSubmitting(false); return; }
+      if (expError) { 
+        alert("Failed to update expense: " + expError.message);
+        setIsSubmitting(false); return; 
+      }
       
       await supabase.from('expense_splits').delete().eq('expense_id', editingExpenseId);
       expenseDataId = editingExpenseId;
@@ -257,7 +260,10 @@ export default function GroupDetails() {
         .from('expenses')
         .insert([{ group_id: id, paid_by: expensePayer, amount: amountNum, description: expenseDesc }])
         .select().single();
-      if (expError) { setIsSubmitting(false); return; }
+      if (expError) { 
+        alert("Failed to add expense: " + expError.message);
+        setIsSubmitting(false); return; 
+      }
       expenseDataId = expenseData.id;
     }
 
