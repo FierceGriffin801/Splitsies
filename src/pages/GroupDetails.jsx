@@ -569,6 +569,40 @@ export default function GroupDetails() {
                         <div className="text-muted" style={{ fontSize: '0.75rem' }}>
                           {payer ? (isMe ? 'You paid' : `${payer.full_name} paid`) : 'Unknown paid'} • {d.toLocaleDateString()}
                         </div>
+                        {!isSettlement && (() => {
+                          const splits = exp.expense_splits || [];
+                          if (splits.length === 0) return null;
+                          
+                          let typeStr = 'Unknown';
+                          let isSingle = splits.length === 1 && Math.abs(Number(splits[0].amount) - Number(exp.amount)) < 0.05;
+                          
+                          let isEqual = false;
+                          if (!isSingle && splits.length > 0) {
+                            const amounts = splits.map(s => Number(s.amount));
+                            const max = Math.max(...amounts);
+                            const min = Math.min(...amounts);
+                            if (max - min <= 0.05) isEqual = true;
+                          }
+                          
+                          if (isSingle) typeStr = 'Someone owes';
+                          else if (isEqual) typeStr = 'Paid equally';
+                          else typeStr = 'Exact amounts';
+
+                          const involvedNames = splits.map(s => {
+                            const m = members.find(m => m.id === s.user_id);
+                            return m ? (m.id === user.id ? 'You' : m.full_name?.split(' ')[0] || m.email?.split('@')[0]) : 'Unknown';
+                          });
+
+                          let namesStr = involvedNames.length <= 2 
+                            ? involvedNames.join(' & ') 
+                            : `${involvedNames.slice(0, 2).join(', ')} & ${involvedNames.length - 2} others`;
+
+                          return (
+                            <div style={{ fontSize: '0.7rem', color: 'var(--primary)', opacity: 0.9, marginTop: '0.1rem' }}>
+                              ↳ {typeStr} • {namesStr}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                     <div className="font-bold" style={{ fontSize: '1.25rem', color: isSettlement ? 'var(--primary)' : 'var(--text-main)' }}>
