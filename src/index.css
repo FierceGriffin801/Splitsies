@@ -234,6 +234,7 @@ p {
 .mb-4 { margin-bottom: 1rem; }
 .pb-24 { padding-bottom: 6rem; }
 .flex { display: flex; }
+.flex-wrap { flex-wrap: wrap; }
 .flex-col { flex-direction: column; }
 .flex-1 { flex: 1; }
 .items-center { align-items: center; }
